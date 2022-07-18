@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="UTF-8"?><database>
+    <element label="M2M Inventory changes v2" max_length="40" name="x_776815_inventory_m2m_inventory_changes_v2" type="collection">
+        <element attributes="encode_utf8=false" display="true" label="Product" max_length="32" name="product" reference="x_776815_inventory_inventory_db_v2" type="reference"/>
+        <element label="Quantity" max_length="40" name="quantity" type="integer"/>
+        <element attributes="edge_encryption_enabled=true" choice="1" label="Type" max_length="40" name="type" type="choice">
+            <choice>
+                <element inactive_on_update="false" label="Grab" value="grab"/>
+                <element inactive_on_update="false" label="Refil" value="refil"/>
+            </choice>
+        </element>
+        <index name="index">
+            <element name="product"/>
+        </index>
+    </element>
+</database>

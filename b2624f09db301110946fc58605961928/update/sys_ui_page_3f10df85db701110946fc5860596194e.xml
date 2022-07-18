@@ -1,0 +1,684 @@
+<?xml version="1.0" encoding="UTF-8"?><record_update table="sys_ui_page">
+    <sys_ui_page action="INSERT_OR_UPDATE">
+        <category>general</category>
+        <client_script><![CDATA[var app = angular.module('app', ['ngTouch', 'ui.grid', 'ui.grid.edit', 'ui.grid.rowEdit', 'ui.grid.moveColumns', 'ui.grid.resizeColumns', 'ui.grid.expandable', 'ui.grid.selection', 'ui.bootstrap', 'ui.grid.cellNav']);
+app.controller('MainCtrl', ['$scope', 'uiGridConstants', '$timeout', '$window', function($scope, uiGridConstants, $timeout, $window, GlideAjax) {
+
+    /*- Consumable Columns -*/
+    $scope.consumableColumns = [{
+            name: 'isActive',
+            displayName: 'Edit Status',
+            enableColumnMenu: false,
+            headerCellClass: 'headerCol',
+            cellTemplate: '<button class="btn primary" style="width:35px;color: #fff;background-color: #B5DE67;border-color: #a0302b;height: 29px;" ng-click="row.entity.isActive = !row.entity.isActive" ng-model="row.entity.isActive">#</button>',
+            enableCellEdit: true,
+            visible: false
+        }, {
+            name: 'barcode',
+            displayName: 'BarCode',
+            headerCellClass: 'headerCol',
+            // 			cellTemplate: '<input id="BarCode_id" type="text" onchange="funcionchida()" />',
+            enableCellEdit: true,
+            readOnly: true
+        },
+        {
+            name: 'name',
+            displayName: 'Name',
+            headerCellClass: 'headerCol',
+            cellClass: 'readOnly',
+            enableCellEdit: false
+        },
+        {
+            name: 'quantity_available',
+            displayName: 'Available',
+            headerCellClass: 'headerCol',
+            enableCellEdit: false
+        },
+        {
+            name: 'quantity',
+            displayName: 'Quantity',
+            headerCellClass: 'headerCol',
+            enableCellEdit: false
+        },
+        {
+            name: 'index',
+            displayName: 'Index',
+            headerCellClass: 'headerCol',
+            cellClass: 'readOnly',
+            enableCellEdit: false,
+            visible: false
+
+        },
+        { //Boton para Agregar uno en cantidad.
+            name: 'add',
+            displayName: '',
+            headerCellClass: 'headerCol',
+            cellTemplate: '<button class="btn primary" style="width:35px;color: #fff;background-color: #B5DE67;border-color: #a0302b;height: 29px;" ng-click="grid.appScope.quantityAdd(row)">+</button>',
+            maxWidth: 35,
+            enableColumnMenu: false,
+            enableCellEdit: false
+        },
+        { //Boton para restar uno en cantidad.
+            name: 'subtract',
+            displayName: '',
+            headerCellClass: 'headerCol',
+            cellTemplate: '<button class="btn primary" style="width:35px;color: #fff;background-color: #F7DC6F;border-color: #a0302b;height: 29px;" ng-click="grid.appScope.quantitySubstract(row)">-</button>',
+            maxWidth: 35,
+            enableColumnMenu: false,
+            enableCellEdit: false
+        },
+        { //Boton para eliminar fila
+            name: 'delete',
+            displayName: '',
+            headerCellClass: 'headerCol',
+            cellTemplate: '<button class="btn primary" style="width:35px;color: #fff;background-color: #c83c36;border-color: #a0302b;height: 29px;" ng-click="grid.appScope.deleteConsumableRow(row)">X</button>',
+            maxWidth: 35,
+            enableColumnMenu: false,
+            enableCellEdit: false
+        }
+    ];
+
+    /*- Consumable Grid definition -*/
+    $scope.consumableGridOptions = {
+        enableCellEdit: false,
+        enableCellEditOnFocus: true,
+        cellEditableCondition: function($scope) {
+            // put your enable-edit code here, using values from $scope.row.entity and/or $scope.col.colDef as you desire
+            return !$scope.row.entity.isActive; // in this example, we'll only allow active rows to be edited
+
+        },
+        columnDefs: $scope.consumableColumns,
+        data: []
+    };
+
+    /*- Load Empty row for each Grid -*/
+    $scope.consumableGridOptions.data.push(getEmptyRow($scope.consumableColumns, $scope.consumableGridOptions.data.length));
+
+    /*- URL Parameters -*/
+    $scope.transferOrder = getURLParameters("sysparm_transferOrder");
+    $scope.stockroom = getURLParameters("sysparm_stockroom");
+
+    $scope.scannedItems = [];
+
+    /**
+     * Description: Clear UI Error messages
+     * Parameters: --
+     * Returns: --
+     */
+    $scope.clearMessage = function() {
+        clearMessage();
+    };
+
+    /**
+     * Description: Adds new row to specific grid
+     * Parameters: grid name (String)
+     * Returns: --
+     */
+    $scope.addNewRow = function(grid) {
+        $scope.consumableGridOptions.data.push(getEmptyRow($scope.consumableColumns, $scope.consumableGridOptions.data.length));
+        //grid.row.entity.barcode.focus();
+        //row.entity.quantity++;
+        //alert(grid.entity.quantity);
+    };
+
+    $scope.focus = function() {
+        var lastIndex = $scope.consumableGridOptions.data.length;
+        //alert(lastIndex);
+        $timeout(function() {
+            $scope.consumableGridApi.cellNav.scrollToFocus($scope.consumableGridOptions.data[lastIndex - 1], $scope.consumableGridOptions.columnDefs[1]);
+        }, 100);
+        $scope.consumableGridOptions.enableCellEditOnFocus = true;
+    };
+
+
+    $scope.consumableGridOptions.onRegisterApi = function(gridApi) {
+        $scope.focus();
+        $scope.consumableGridApi = gridApi;
+        $scope.consumableGridApi.edit.on.afterCellEdit($scope, function(rowEntity, colDef, newValue, oldValue) {
+            if (oldValue != newValue) {
+                if (newValue != "" && typeof(newValue) != "undefined") {
+                    if (!lookForDuplicates(colDef, newValue, rowEntity.index, $scope.consumableGridOptions.data)) {
+
+                        if (colDef.name == "barcode") {//barcode on change
+							
+                            productInformation = itemIdentification(rowEntity.barcode);//get table info into curent row.
+							
+							
+							if(rowEntity.barcode == "Check out"){//scan Chech out	
+								itemsCheckout($scope.consumableGridOptions.data);
+							}
+							
+                            if (productInformation.name != "no item") {
+                                $scope.removeDuplicates($scope.consumableGridOptions.data, rowEntity.barcode, rowEntity);
+                                rowEntity.isActive = !rowEntity.isActive;
+                                rowEntity.quantity_available = productInformation.quantity;
+                                rowEntity.name = productInformation.name;
+
+                                //capturar cantidad disponible, evitar que el boton de + sea mayor
+                                if (itemIdentification(rowEntity.barcode) == "no item") {
+                                    alert("simon es no item");
+                                }
+
+                                /* -- Adds and focus on a new row -- */
+                                var consGridLength = $scope.consumableGridOptions.data.length;
+                                var nextRow = $scope.consumableGridOptions.data[consGridLength];
+                                if (!nextRow) {
+                                    $scope.newData = angular.copy($scope.consumableGridOptions.data);
+                                    $scope.newData.push(getEmptyRow($scope.consumableColumns, consGridLength));
+                                    $scope.consumableGridOptions.data = angular.copy($scope.newData);
+                                    consGridLength = $scope.consumableGridOptions.data.length;
+                                    $timeout(function() {
+                                        $scope.consumableGridApi.cellNav.scrollToFocus($scope.consumableGridOptions.data[consGridLength - 1], $scope.consumableGridOptions.columnDefs[1]);
+                                    }, 100);
+                                    $scope.consumableGridOptions.enableCellEditOnFocus = true;
+                                } else {
+                                    $timeout(function() {
+                                        $scope.consumableGridApi.cellNav.scrollToFocus(nextRow, $scope.consumableGridOptions.columnDefs[1]);
+                                    }, 100);
+                                    $scope.consumableGridOptions.enableCellEditOnFocus = true;
+                                }
+
+                            }else {
+                                rowEntity.barcode = "";
+                            }
+                            //aqui se acaba
+
+
+
+
+
+                            /* -- Increase Scanned assets count -- */
+                          
+                        }
+                    } else {
+                        rowEntity.name = "";
+                        rowEntity.barcode = "";
+                        rowEntity.display_name = "";
+                        rowEntity.model_id = "";
+                        rowEntity.stockroom = "";
+                        rowEntity.available = "";
+                        rowEntity.quantity = "";
+                        //                         if (oldValue != "")
+                        //                             decreaseScannedAssetsCount(oldValue);
+                        //                         showMessage("The Model you are trying to add is already listed. Edit quantity instead.");
+                    }
+                } else {
+                    if (oldValue != "") {
+                        rowEntity.name = "";
+                        rowEntity.barcode = "";
+                        rowEntity.display_name = "";
+                        rowEntity.model_id = "";
+                        rowEntity.stockroom = "";
+                        rowEntity.available = "";
+                        rowEntity.quantity = "";
+                        //                         decreaseScannedAssetsCount(oldValue);
+                    }
+                }
+            }
+
+            $scope.oldRow = rowEntity.index;
+            $scope.focus();
+        });
+    };
+
+    /**
+     * Description: Deletes single row for Consumable Grid
+     * Parameters: row (Object)
+     * Returns: --
+     */
+    $scope.deleteConsumableRow = function(row) {
+        var lastIndex = $scope.consumableGridOptions.data.length;
+        console.log("ROW: ", row);
+        console.log("row barcode: " + row.barcode);
+        console.log("last Index " + lastIndex);
+        console.log("Consumable data: ", $scope.consumableGridOptions.data);
+        if (lastIndex > 1 && row.entity.barcode != "") {
+            var index = $scope.consumableGridOptions.data.indexOf(row.entity);
+            updateIndex(index, $scope.consumableGridOptions.data);
+            $scope.consumableGridOptions.data.splice(index, 1);
+        }
+        console.log("row barcode2: " + row.barcode);
+        console.log("last Index2 " + lastIndex);
+        if (lastIndex <= 1 && row.entity.barcode == "") {
+
+            row.entity.barcode = "";
+            row.entity.quantity = "";
+            row.entity.name = "";
+        }
+
+        $scope.focus();
+    };
+
+    $scope.removeDuplicates = function(grid, barCode, row) {
+        for (var i = 0; i < grid.length; i++) {
+            if ($scope.consumableGridOptions.data[i].barcode == barCode && $scope.consumableGridOptions.data[i].quantity == "") { //first add
+                $scope.consumableGridOptions.data[i].quantity++;
+                $scope.focus();
+                return 1; //create new row and pull name
+            } else if ($scope.consumableGridOptions.data[i].barcode == barCode && $scope.consumableGridOptions.data[i].quantity != "") { //already exists
+                if ($scope.consumableGridOptions.data[i].quantity < $scope.consumableGridOptions.data[i].quantity_available) {
+                    $scope.consumableGridOptions.data[i].quantity++;
+                }
+				console.log("Aqui mero esta ", row);
+                console.log("Aqui esta el barcode " + row.barcode);
+                row.barcode = "";
+                $scope.deleteConsumableRow(row);
+                $scope.focus();
+                return 2; //clean current row, do not add new row, stop query
+            }
+        }
+    };
+
+    $scope.quantityAdd = function(row) {
+        //alert(row.entity.quantity_available);
+        if (row.entity.barcode != "" && row.entity.quantity < row.entity.quantity_available) {
+            var index = $scope.consumableGridOptions.data.indexOf(row.entity);
+            row.entity.quantity++;
+        }
+        $scope.focus();
+    };
+
+    $scope.quantitySubstract = function(row) {
+        //alert("sub");
+        if (row.entity.barcode != "") {
+            if (row.entity.quantity > 1) {
+                row.entity.quantity--;
+                $scope.focus();
+            } else {
+                //alert("Error, you need 1 in quantity at least");
+                //showError("Error, you need 1 in quantity at least");
+                $j('#error_msg').html(getMessage('Error, you need 1 in quantity at least'));
+                gel('error_msg').show();
+                $scope.focus();
+            }
+            $scope.focus();
+        }
+        $scope.focus();
+    };
+
+
+    $scope.checkOut = function(grid) {
+        itemsCheckout($scope.consumableGridOptions.data);
+    };
+
+    /**
+     * Description: Creates dynamic object based on columnsDef and returns Empty Row Object
+     * Parameters: columns (Array), index (Int)
+     * Returns: row (Object)
+     */
+    function getEmptyRow(columns, index) {
+        var row = {};
+        columns.forEach(function(column) {
+            if (column.name == "index") {
+                row[column.name] = index;
+            } else {
+                row[column.name] = '';
+            }
+        });
+        return row;
+    }
+
+    /**
+     * Description: Checks for duplicate entries in grid
+     * Parameters: colName (String), newValue (String), gridOptionsData (Object)
+     * Returns: Boolean
+     */
+    function lookForDuplicates(colName, newValue, rowIndex, gridOptionData) {
+        var match = 0;
+        for (var i = 0; i < gridOptionData.length; i++) {
+            if (parseInt(rowIndex) != i) {
+                if (gridOptionData[i][colName] === newValue) {
+                    match++;
+                }
+            }
+        }
+        return (match > 0);
+    }
+	
+    /**
+     * Description: Gets URL parameters
+     * Parameters: parameter (String)
+     * Returns: Parameter value (String)
+     */
+    function getURLParameters(parameter) {
+        var queryString = window.location.search;
+        var urlParams = new URLSearchParams(queryString);
+        return urlParams.get(parameter);
+    }
+
+    /**
+     * Description: Update Row Index when a row is deleted
+     * Parameters: index (int)
+     * Returns: --
+     */
+    function updateIndex(index, grid) {
+        if (grid[index]) {
+            grid[index].index = index;
+            for (var i = index + 1; i < grid.length; i++) {
+                grid[i].index = i;
+            }
+        }
+    }
+
+}]);
+
+/**
+ * Description: Shows UI Error Message
+ * Parameters: message (String)
+ * Returns: --
+ */
+function showMessage(message) {
+    document.getElementById("alert-message").innerHTML = message;
+    document.getElementById("alert").style.visibility = "visible";
+}
+
+/**
+ * Description: Clears UI Message
+ * Parameters: --
+ * Returns: --
+ */
+function clearMessage(quantity) {
+    document.getElementById('alert').style.visibility = "hidden";
+}
+
+function itemIdentification(barcodeProduct) {
+
+    var gaInventory = new GlideAjax('GlideAjaxInventory2');
+    gaInventory.addParam("sysparm_name", "IdentifyProduct");
+    gaInventory.addParam('barcode', barcodeProduct);
+    gaInventory.getXMLWait();
+    var productInfo = JSON.parse(gaInventory.getAnswer());
+
+    return productInfo;
+
+}
+
+function itemsCheckout(checkOutList) {
+    alert("CheckOut Complete!");
+    var itemsOut = [];
+    for (i = 0; i < checkOutList.length; i++) {
+        if ((checkOutList[i].barcode != "") && (checkOutList[i].name != "no item")) {
+            itemsOut[i] = checkOutList[i];
+        }
+    }
+    itemsOut = itemsOut.filter(checkNull);
+    var strArr = Object.toJSON(itemsOut);
+    var gaInventoryOut = new GlideAjax('GlideAjaxInventory2');
+    gaInventoryOut.addParam("sysparm_name", "UpdateNewQuantity");
+    gaInventoryOut.addParam("list_item", strArr);
+    gaInventoryOut.getXMLWait();
+    console.log(gaInventoryOut.getAnswer());
+    //return gaInventory.getAnswer();
+    location.reload(); //refresh page
+}
+
+function checkNull(parameter) {
+    return parameter != null;
+}]]></client_script>
+        <description/>
+        <direct>false</direct>
+        <endpoint>x_776815_inventory_Inventory UI page V2.do</endpoint>
+        <html><![CDATA[<?xml version="1.0" encoding="utf-8" ?>
+<j:jelly trim="false" xmlns:j="jelly:core" xmlns:g="glide" xmlns:j2="null" xmlns:g2="null">
+	<html lang="en" ng-app="app">
+		<head>
+			<meta charset="UTF-8" />
+			<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+			<meta http-equiv="X-UA-Compatible" content="ie=edge" />
+			<link rel="stylesheet" type="text/css"
+				  href="https://cdnjs.cloudflare.com/ajax/libs/angular-ui-grid/4.2.4/ui-grid.min.css" />
+			<script src="https://ajax.googleapis.com/ajax/libs/angularjs/1.4.7/angular.js"></script>
+			<script src="https://ajax.googleapis.com/ajax/libs/angularjs/1.4.7/angular-touch.js"></script>
+			<script src="https://cdnjs.cloudflare.com/ajax/libs/angular-ui-grid/4.2.4/ui-grid.min.js"></script>
+			<script src="https://angular-ui.github.io/bootstrap/ui-bootstrap-tpls-0.14.3.js"></script>
+			<script src="https://npmcdn.com/ui-grid-auto-fit-columns@1.2.2/dist/ui-grid.auto-fit-columns.umd.js"></script>
+			<script src="service.sn-glideAjax.jsdbx"></script>
+			<script src="/release/ui-grid.cellnav.min.js"></script>
+			
+			<style>
+				.grid {
+				margin: 15px 15px 15px 15px;
+				}
+
+				.toolbar-container {
+				margin: 30px 13px 5px 0px;
+				}
+
+				.toolbar-grid {
+				float: right;
+				padding: 5px;
+				}
+
+				.toolbar-location-search {
+				float: left;
+				padding: 5px;
+				}
+
+				.glyphicon-text {
+				padding: 20px 10px 20px 10px;
+				}
+
+				.save-changes {
+				float: right;
+				margin-right: 10px;
+				}
+
+				/* type ahead */
+				.typeahead-demo .custom-popup-wrapper {
+				position: absolute;
+				top: 100%;
+				left: 0;
+				z-index: 1000;
+				display: none;
+				background-color: #f9f9f9;
+				}
+
+				.typeahead-demo .custom-popup-wrapper>.message {
+				padding: 10px 20px;
+				border-bottom: 1px solid #ddd;
+				color: #868686;
+				}
+
+				.typeahead-demo .custom-popup-wrapper>.dropdown-menu {
+				position: static;
+				float: none;
+				display: block;
+				min-width: 160px;
+				background-color: transparent;
+				border: none;
+				border-radius: 0;
+				box-shadow: none;
+				}
+
+				/* grid color constants */
+				.validation-error {
+				color: red;
+				}
+
+				.close:hover {
+				border: 0px;
+				}
+
+				#bulkupdate {
+				margin-right: 10px;
+				}
+
+				#btnGroup {
+				margin-top: 10px;
+				}
+
+				.container div {
+				margin: 10px;
+				}
+
+				.grid .ui-grid-row .readOnly {
+				color: #000;  
+				background-color: #eee !important;
+				border: 1px solid #ccc;
+				}
+
+				.headerCol {
+				color: #fff;  
+				background-color: #1C2A48 !important; 
+				}
+				body {
+					margin: 0;
+				}
+				.container {
+					width: 100%;
+					height: 100%;
+				}
+				#alert {
+					position: fixed;
+					width: 98%;
+					z-index: 1000;
+					padding-top: 15px;
+					top: 10px;
+					margin-left: 1%;
+					left: 0;
+					visibility: hidden;
+				}
+				.header {
+					width: 100%;
+					height: 5%;
+					font-size: small;
+					position: relative;
+				}
+				.footer {
+					width: 100%;
+					height: 8%;
+					position: relative;
+					top: 10px;
+				}
+				.asset-grid-header {
+					width: 100%;
+					height: 4%;
+					position: relative;
+					top: 15px;
+					font-size: 15px;
+				}
+				.consumable-grid-header {
+					width: 100%;
+					height: 4%;
+					position: relative;
+					top: 15px;
+				}
+				.scanned-assets {
+					font-size: 15px;
+					position: absolute;
+					right: 0;
+					top: 0;
+				}
+				<!-- .asset-grid {
+					position: relative;
+					top: 0;
+				}
+				.consumable-grid {
+					position: relative;
+					top: 5px;
+				} -->
+				#asset-add-row {
+					width: 150px;
+					heigth: 30px;
+					position: absolute;
+					right: 0;
+					bottom: 5px;
+				}
+				#consumable-add-row {
+					width: 150px;
+					heigth: 30px;
+					position: absolute;
+					right: 0;
+					bottom: 5px;
+				}
+				#add-transfer-order-line {
+					width: 200px;
+					height: 50px;
+					margin: 0;
+					position: absolute;
+					top: 50%;
+					left: 50%;
+					-ms-transform: translate(-50%, -50%);
+					transform: translate(-50%, -50%);
+				}
+				#clear-alert {
+					position: absolute;
+					top: 2px;
+					right: 0;
+					color: #9d0010;
+					background-color: transparent;
+					border-color: transparent;
+					font-size: 20px;
+				}
+				#scanned-assets {
+					background-color: #e6e9eb;
+					opacity: 1;
+					width: 200px;
+					height: 32px;
+					padding: 6px 9px;
+					margin-left: 5px;
+					font-size: 15px;
+					border: 1px solid #cbcbcb;
+					border-radius: 3px;
+				}
+			</style>
+		</head>
+
+		<body ng-controller="MainCtrl">
+			<!-- data grid-->
+			<div class="container-fluid" data-ng-cloak="">
+				<div id="alert" class="alert alert-danger alert-dismissible" role="alert">
+					<label id="alert-message"></label>
+					<button type="button" id="clear-alert" ng-click="clearMessage()"> X </button>
+				</div>
+				<div class="header">
+					<h3>Inventory:</h3>
+				</div>
+				
+				<div class="header">
+			<p class="interlineado"> 
+1. Take the item you need from the inventory.<br> </br>
+2.Scan the barcode of the item without unplugging the gun.<br> </br>
+3. With the + or - buttons you can add or remove the desired quantity of the item. Similarly, you can increase the amount by rescanning the code.<br> </br>
+4. If you made a mistake or simply want to delete an item from your list, press the X button.<br> </br> 
+5. If your list of items is complete press Withdraw.<br> </br>
+</p> 
+				</div>
+	
+				<br></br>
+				
+			    <span style='color: red;' id="error_msg" class="outputmsg_text"></span>
+				<div id="consumable-grid" ui-grid="consumableGridOptions" class="grid" ui-grid-auto-fit-columns="" data-ui-grid-cellNav="" data-ui-grid-edit=""></div>
+				<br></br>
+				
+				
+				<div id="footer" class="footer">
+					<button type="button" id="add-transfer-order-line" class="btn btn-success" ng-click="checkOut('pmodel_grid')">Retirar</button>
+				</div>
+			</div>
+		</body>
+	</html>
+</j:jelly>]]></html>
+        <name>Inventory UI page V2</name>
+        <processing_script><![CDATA[/*
+
+
+Quantity read only, delete button only cleans row, quantity is 1 for default,, Barcode on enter read only, + and - always focus blank row
+
+
+
+*/]]></processing_script>
+        <sys_class_name>sys_ui_page</sys_class_name>
+        <sys_created_by>Arturo.aceves</sys_created_by>
+        <sys_created_on>2022-07-18 16:25:42</sys_created_on>
+        <sys_id>3f10df85db701110946fc5860596194e</sys_id>
+        <sys_mod_count>1</sys_mod_count>
+        <sys_name>Inventory UI page V2</sys_name>
+        <sys_package display_value="Inventory DB V2" source="x_776815_inventory">b2624f09db301110946fc58605961928</sys_package>
+        <sys_policy/>
+        <sys_scope display_value="Inventory DB V2">b2624f09db301110946fc58605961928</sys_scope>
+        <sys_update_name>sys_ui_page_3f10df85db701110946fc5860596194e</sys_update_name>
+        <sys_updated_by>Arturo.aceves</sys_updated_by>
+        <sys_updated_on>2022-07-18 18:21:03</sys_updated_on>
+    </sys_ui_page>
+</record_update>
